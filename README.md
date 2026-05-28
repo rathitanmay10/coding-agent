@@ -1,13 +1,17 @@
 # coding-agent
 
-Local CLI coding harness powered by [Pydantic AI](https://ai.pydantic.dev/) + [Ollama](https://ollama.com/).
-Drives file edits, shell commands, and code search against your local project — no cloud calls, no API keys.
+CLI coding harness powered by [Pydantic AI](https://ai.pydantic.dev/). Two backends:
+
+- **Ollama** — fully local, no API key
+- **OpenRouter** — cloud, one API key buys access to most frontier models
+
+Drives file edits, shell commands, and code search against your local project.
 
 ## Requirements
 
 - Python 3.10+
-- [Ollama](https://ollama.com/) running locally (`ollama serve`)
-- At least one model pulled (e.g. `ollama pull qwen2.5-coder:7b`)
+- For Ollama: [Ollama](https://ollama.com/) running locally (`ollama serve`) + at least one model pulled
+- For OpenRouter: an API key from <https://openrouter.ai/keys>
 - Optional: `ripgrep` (`rg`) on PATH for faster `grep` tool
 
 ## Install
@@ -22,18 +26,34 @@ uv sync --extra dev
 ## Run
 
 ```bash
-# Pick model interactively from `ollama list`:
+# Fully interactive: pick provider, then model:
 uv run coding-agent
 
-# Or pass directly:
-uv run coding-agent --model qwen2.5-coder:7b
+# Ollama, specific model:
+uv run coding-agent --provider ollama --model qwen2.5-coder:7b
+
+# OpenRouter (key from env or .env):
+uv run coding-agent --provider openrouter --model anthropic/claude-sonnet-4.5
+
+# OpenRouter, explicit key:
+uv run coding-agent --provider openrouter --model openai/gpt-4o --api-key sk-or-v1-...
 
 # Skip approval prompts (dangerous):
 uv run coding-agent --yolo
 
 # Remote/non-default Ollama host:
-uv run coding-agent --host http://192.168.1.50:11434
+uv run coding-agent --provider ollama --host http://192.168.1.50:11434
 ```
+
+## .env file
+
+If a `.env` exists in the launch directory, it is loaded at startup. Use it for `OPENROUTER_API_KEY`:
+
+```
+OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+CLI `--api-key` beats env beats `.env` beats interactive prompt.
 
 ## REPL commands
 
