@@ -33,12 +33,8 @@ from coding_agent.session_log import SessionLogger, TurnRecord
 
 PROVIDERS = ("ollama", "openrouter")
 OPENROUTER_SUGGESTIONS = (
-    "anthropic/claude-sonnet-4.5",
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "meta-llama/llama-3.3-70b-instruct",
-    "qwen/qwen-2.5-coder-32b-instruct",
-    "google/gemini-2.0-flash-001",
+    "z-ai/glm-4.5-air:free",
+    "openrouter/free"
 )
 
 
