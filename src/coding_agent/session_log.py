@@ -79,3 +79,47 @@ class SessionLogger:
             f"session total: in={self.total_input} out={self.total_output} "
             f"req={self.total_requests}"
         )
+
+
+def load_session(path: Path) -> list[TurnRecord]:
+    """Read a session JSONL file back into TurnRecord objects (turn lines only).
+
+    Skips the session_start line and any malformed/non-turn lines.
+    Used by --resume to rebuild conversation history.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    records: list[TurnRecord] = []
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("type") != "turn":
+            continue
+        usage = obj.get("usage") or {}
+        records.append(TurnRecord(
+            user=obj.get("user", ""),
+            tool_calls=obj.get("tool_calls") or [],
+            output=obj.get("output", ""),
+            error=obj.get("error"),
+            duration_s=obj.get("duration_s", 0.0),
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            requests=usage.get("requests", 0),
+        ))
+    return records
+
+
+def latest_session(cwd: Path) -> Path | None:
+    """Return the most recent session-*.jsonl under cwd/.coding-agent/logs, or None."""
+    log_dir = cwd / ".coding-agent" / "logs"
+    try:
+        candidates = list(log_dir.glob("session-*.jsonl"))
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.name)

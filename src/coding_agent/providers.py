@@ -3,7 +3,48 @@
 from __future__ import annotations
 
 import os
+import sys
+import time
 from pathlib import Path
+from typing import Callable, TypeVar
+
+import httpx
+
+_T = TypeVar("_T")
+
+_TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
+
+
+def with_retry(fn: Callable[[], _T], *, attempts: int = 3, base: float = 0.5) -> _T:
+    """Call fn() and retry on transient errors with exponential backoff.
+
+    Retries on httpx transport errors and HTTP 429/500/502/503/504.
+    Re-raises immediately on non-transient errors and after exhausting attempts.
+    Backoff: base * 2**i seconds between tries (base, 2*base, 4*base, ...).
+    """
+    for i in range(attempts):
+        try:
+            return fn()
+        except httpx.TransportError as exc:
+            transient = True
+            err = exc
+        except httpx.HTTPStatusError as exc:
+            transient = exc.response.status_code in _TRANSIENT_STATUSES
+            err = exc
+            if not transient:
+                raise
+        except Exception as exc:
+            status = getattr(exc, "status_code", None)
+            transient = status in _TRANSIENT_STATUSES
+            err = exc
+            if not transient:
+                raise
+        if i == attempts - 1:
+            raise err
+        delay = base * 2**i
+        print(f"[retry] transient error, attempt {i + 1}/{attempts}, sleeping {delay}s", file=sys.stderr)
+        time.sleep(delay)
+    raise err  # unreachable but satisfies type checkers
 
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider

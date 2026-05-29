@@ -12,6 +12,28 @@ from pydantic_ai import RunContext
 from coding_agent.deps import AgentDeps
 from coding_agent.approval import confirm
 
+IGNORE_DIRS = {
+    ".git", ".venv", "node_modules", "__pycache__", ".pytest_cache",
+    "dist", "build", ".mypy_cache", ".ruff_cache", ".coding-agent",
+}
+
+# Obviously destructive command patterns refused before approval is ever asked.
+BASH_DENYLIST = (
+    re.compile(r"\brm\b.*\s-[a-zA-Z]*[rf][a-zA-Z]*\s+[/~]"),  # rm -rf /... or ~... (absolute/home target)
+    re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),  # fork bomb
+    re.compile(r"\bdd\b.*\bof=/dev/"),  # dd of=/dev/...
+    re.compile(r"\bmkfs(\.\w+)?\b"),  # filesystem format
+    re.compile(r">\s*/dev/sd[a-z]"),  # write to raw disk
+)
+
+
+def _denied_bash(command: str) -> str | None:
+    """Return a reason string if `command` matches a destructive denylist pattern, else None."""
+    for pat in BASH_DENYLIST:
+        if pat.search(command):
+            return f"refused: command matches destructive denylist pattern ({pat.pattern})"
+    return None
+
 
 def _safe_path(cwd: Path, path: str) -> Path:
     """Resolve `path` under cwd. Raise ValueError if it escapes cwd."""
@@ -81,7 +103,7 @@ def register_tools(agent) -> None:
             results = sorted(
                 str(p.relative_to(cwd))
                 for p in cwd.glob(pattern)
-                if p.is_file()
+                if p.is_file() and not any(part in IGNORE_DIRS for part in p.parts)
             )
             if len(results) > 200:
                 return results[:200] + ["... (truncated)"]
@@ -119,7 +141,8 @@ def register_tools(agent) -> None:
             except re.error as e:
                 return f"Error: invalid regex: {e}"
             walk_root = target if target.is_dir() else target.parent
-            for root, _dirs, files in os.walk(walk_root):
+            for root, dirs, files in os.walk(walk_root):
+                dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
                 for fname in files:
                     fpath = Path(root) / fname
                     if not fpath.match(glob):
@@ -157,7 +180,7 @@ def register_tools(agent) -> None:
             detail = f"path: {path}\n{len(content.splitlines())} lines, {len(content)} bytes"
             if target.exists():
                 detail = "(overwriting existing file)\n" + detail
-            if not confirm("write_file", detail, ctx.deps.auto_approve):
+            if not confirm(ctx.deps, "write_file", detail):
                 return "User denied: write_file"
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
@@ -189,7 +212,7 @@ def register_tools(agent) -> None:
                     n=2,
                 )
             )
-            if not confirm("edit_file", diff, ctx.deps.auto_approve):
+            if not confirm(ctx.deps, "edit_file", diff):
                 return "User denied: edit_file"
             if target.stat().st_mtime_ns != mtime_before:
                 return f"Error: {path} changed externally during approval; re-read and retry"
@@ -199,11 +222,83 @@ def register_tools(agent) -> None:
             return f"Error: {e}"
 
     @agent.tool
+    def multi_edit(ctx: RunContext[AgentDeps], path: str, edits: list[dict]) -> str:
+        """Apply multiple old->new replacements to a file atomically (each 'old' must be unique). Confirms once with a unified diff before writing."""
+        try:
+            target = _safe_path(ctx.deps.cwd, path)
+            if not target.exists():
+                return f"Error: file not found: {path}"
+            mtime_before = target.stat().st_mtime_ns
+            original = target.read_text()
+            working = original
+            for i, edit in enumerate(edits):
+                old = edit.get("old", "")
+                new = edit.get("new", "")
+                count = working.count(old)
+                if count == 0:
+                    return f"Error: edit {i}: `old` string not found in current text"
+                if count > 1:
+                    return f"Error: edit {i}: `old` matches {count} times; provide a longer unique string"
+                working = working.replace(old, new, 1)
+            diff = "".join(
+                difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    working.splitlines(keepends=True),
+                    fromfile=path,
+                    tofile=path,
+                    n=2,
+                )
+            )
+            if not confirm(ctx.deps, "multi_edit", diff):
+                return "User denied: multi_edit"
+            if target.stat().st_mtime_ns != mtime_before:
+                return f"Error: {path} changed externally during approval; re-read and retry"
+            target.write_text(working)
+            return f"Applied {len(edits)} edits to {path}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @agent.tool
+    def delete_file(ctx: RunContext[AgentDeps], path: str) -> str:
+        """Delete a file (with user confirmation)."""
+        try:
+            target = _safe_path(ctx.deps.cwd, path)
+            if not target.exists():
+                return f"Error: file not found: {path}"
+            if not target.is_file():
+                return f"Error: not a file: {path}"
+            if not confirm(ctx.deps, "delete_file", f"path: {path}"):
+                return "User denied: delete_file"
+            target.unlink()
+            return f"Deleted {path}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @agent.tool
+    def move_file(ctx: RunContext[AgentDeps], src: str, dst: str) -> str:
+        """Move/rename a file within the working directory (with user confirmation)."""
+        try:
+            src_target = _safe_path(ctx.deps.cwd, src)
+            dst_target = _safe_path(ctx.deps.cwd, dst)
+            if not src_target.exists():
+                return f"Error: source not found: {src}"
+            if not confirm(ctx.deps, "move_file", f"{src} -> {dst}"):
+                return "User denied: move_file"
+            dst_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src_target), str(dst_target))
+            return f"Moved {src} -> {dst}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @agent.tool
     def run_bash(ctx: RunContext[AgentDeps], command: str, timeout: int = 60) -> str:
         """Run a shell command in the working directory (with confirmation)."""
         try:
+            denied = _denied_bash(command)
+            if denied:
+                return f"Error: {denied}"
             detail = f"$ {command}\n(cwd: {ctx.deps.cwd})\ntimeout: {timeout}s"
-            if not confirm("run_bash", detail, ctx.deps.auto_approve):
+            if not confirm(ctx.deps, "run_bash", detail):
                 return "User denied: run_bash"
             try:
                 proc = subprocess.run(

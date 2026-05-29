@@ -7,6 +7,11 @@ CLI coding harness powered by [Pydantic AI](https://ai.pydantic.dev/). Two backe
 
 Drives file edits, shell commands, and code search against your local project.
 
+Features: live token **streaming**, gitignore-aware search, project-context priming
+on boot, per-tool **approval allowlist**, a destructive-command denylist,
+transient-error retry, Ctrl-C cancels the current turn (not the app), `/compact`
+history summarization, and `--resume` to continue a past session.
+
 ## Requirements
 
 - Python 3.10+
@@ -43,7 +48,14 @@ uv run coding-agent --yolo
 
 # Remote/non-default Ollama host:
 uv run coding-agent --provider ollama --host http://192.168.1.50:11434
+
+# Resume the most recent session (or pass a session-*.jsonl path):
+uv run coding-agent --resume          # = --resume latest
+uv run coding-agent --resume .coding-agent/logs/session-20260101-104530.jsonl
 ```
+
+`--resume` seeds the conversation with a recap of the prior session's turns so the
+model has context to continue from.
 
 ## .env file
 
@@ -59,10 +71,15 @@ CLI `--api-key` beats env beats `.env` beats interactive prompt.
 
 | Command | Effect |
 |---|---|
+| `/help` | List all REPL commands |
 | `/exit`, `/quit`, Ctrl-D | Quit (prints session totals) |
 | `/clear` | Reset conversation history |
+| `/compact` | Summarize old turns into one recap; shrinks context |
 | `/model` | Re-pick model (resets history) |
 | `/stats` | Show running token + turn totals |
+
+`Ctrl-C` during a turn cancels that turn and returns to the prompt — it does **not**
+quit the app. `Ctrl-C`/`Ctrl-D` at the empty prompt quits.
 
 ## Sandbox
 
@@ -77,10 +94,29 @@ Agent is locked to the directory you launch from. Every tool resolves paths agai
 
 ## Tools the agent can call
 
-- **read_file**, **list_dir**, **glob_files**, **grep** — read-only, no prompt
-- **write_file**, **edit_file**, **run_bash** — prompts y/N before each call (unless `--yolo`)
+- **read_file**, **list_dir**, **glob_files**, **grep** — read-only, no prompt. `glob_files`/`grep` skip `.git`, `.venv`, `node_modules`, `__pycache__`, etc. (ripgrep respects your `.gitignore`).
+- **write_file**, **edit_file**, **multi_edit**, **delete_file**, **move_file**, **run_bash** — prompt before each call (unless `--yolo`).
 
 All paths are confined to the directory you launch from.
+
+### Approval prompt
+
+Destructive tools prompt `Approve? [y/N/a]`:
+
+- `y` / `yes` → run this one call
+- `a` / `always` → run, and auto-approve every later call to **this tool** for the rest of the session
+- anything else → deny (tool returns `"User denied: <tool>"`)
+
+`run_bash` additionally **refuses outright** (before any prompt) commands matching a
+destructive denylist — `rm -rf /` / `~`, fork bombs, `dd of=/dev/...`, `mkfs`,
+raw-disk redirects — even under `--yolo`.
+
+## Resilience
+
+- **Streaming** — assistant text prints token-by-token as it arrives.
+- **Retry** — transient errors (connection drops, HTTP 429/5xx) retry with exponential backoff before failing the turn.
+- **Cancel** — `Ctrl-C` aborts the in-flight turn and returns to the prompt.
+- **Project context** — on boot the agent is primed with a shallow directory tree and the head of `CLAUDE.md`/`README.md`, so it isn't blind to the project on turn one.
 
 ## Model picks
 

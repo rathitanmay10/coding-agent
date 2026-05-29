@@ -28,12 +28,17 @@ Rules:
 """
 
 
-def build_agent(model: Any) -> Agent[AgentDeps, str]:
+def build_agent(model: Any, project_context: str | None = None) -> Agent[AgentDeps, str]:
     """Build an Agent wired with the given model (string id or model instance)."""
+    instructions = (
+        SYSTEM_PROMPT + "\n\n# Project context\n" + project_context
+        if project_context
+        else SYSTEM_PROMPT
+    )
     agent = Agent(
         model,
         deps_type=AgentDeps,
-        instructions=SYSTEM_PROMPT,
+        instructions=instructions,
     )
     register_tools(agent)
     return agent
