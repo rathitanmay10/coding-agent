@@ -26,11 +26,11 @@ EXPECTED_TOOL_NAMES = {
 }
 
 
-def test_build_agent_registers_all_tools():
+async def test_build_agent_registers_all_tools():
     agent = build_agent("test")
     m = TestModel()
     with agent.override(model=m):
-        agent.run_sync(
+        await agent.run(
             "hello",
             deps=AgentDeps(cwd=Path.cwd(), auto_approve=True),
         )
@@ -39,7 +39,7 @@ def test_build_agent_registers_all_tools():
     assert names == EXPECTED_TOOL_NAMES
 
 
-def test_read_file_via_agent(tmp_path):
+async def test_read_file_via_agent(tmp_path):
     sample = tmp_path / "sample.txt"
     sample.write_text("alpha\nbravo\ncharlie")
 
@@ -55,7 +55,7 @@ def test_read_file_via_agent(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "read sample.txt",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -66,11 +66,11 @@ def test_read_file_via_agent(tmp_path):
     assert "charlie" in blob
 
 
-def test_write_file_creates_file(tmp_path):
+async def test_write_file_creates_file(tmp_path):
     agent = build_agent("test")
     m = TestModel(call_tools=["write_file"])
     with agent.override(model=m):
-        result = agent.run_sync(
+        result = await agent.run(
             "write something",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -99,7 +99,7 @@ def test_path_escape_rejected(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_glob_files_skips_ignored_dirs(tmp_path):
+async def test_glob_files_skips_ignored_dirs(tmp_path):
     real = tmp_path / "pkg" / "mod.py"
     real.parent.mkdir(parents=True)
     real.write_text("x = 1")
@@ -126,7 +126,7 @@ def test_glob_files_skips_ignored_dirs(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "glob py files",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -142,7 +142,7 @@ def test_glob_files_skips_ignored_dirs(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_grep_fallback_skips_ignored_dirs(tmp_path, monkeypatch):
+async def test_grep_fallback_skips_ignored_dirs(tmp_path, monkeypatch):
     import coding_agent.tools as _tools_mod
 
     monkeypatch.setattr(_tools_mod.shutil, "which", lambda name: None)
@@ -167,7 +167,7 @@ def test_grep_fallback_skips_ignored_dirs(tmp_path, monkeypatch):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "grep SECRET",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -182,7 +182,7 @@ def test_grep_fallback_skips_ignored_dirs(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_multi_edit_applies_two_edits(tmp_path):
+async def test_multi_edit_applies_two_edits(tmp_path):
     f = tmp_path / "code.py"
     f.write_text("foo = 1\nbar = 2\nbaz = 3\n")
 
@@ -209,7 +209,7 @@ def test_multi_edit_applies_two_edits(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "multi edit code.py",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -222,7 +222,7 @@ def test_multi_edit_applies_two_edits(tmp_path):
     assert "baz = 3" in content
 
 
-def test_multi_edit_atomic_on_missing_old(tmp_path):
+async def test_multi_edit_atomic_on_missing_old(tmp_path):
     f = tmp_path / "code.py"
     original = "alpha\nbeta\ngamma\n"
     f.write_text(original)
@@ -250,7 +250,7 @@ def test_multi_edit_atomic_on_missing_old(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "multi edit code.py",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -260,7 +260,7 @@ def test_multi_edit_atomic_on_missing_old(tmp_path):
     assert f.read_text() == original
 
 
-def test_multi_edit_atomic_on_duplicate_old(tmp_path):
+async def test_multi_edit_atomic_on_duplicate_old(tmp_path):
     f = tmp_path / "code.py"
     original = "x = 1\nx = 1\n"
     f.write_text(original)
@@ -287,7 +287,7 @@ def test_multi_edit_atomic_on_duplicate_old(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "multi edit code.py",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -302,7 +302,7 @@ def test_multi_edit_atomic_on_duplicate_old(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_delete_file_removes_file(tmp_path):
+async def test_delete_file_removes_file(tmp_path):
     f = tmp_path / "to_delete.txt"
     f.write_text("bye")
 
@@ -322,7 +322,7 @@ def test_delete_file_removes_file(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "delete to_delete.txt",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -332,7 +332,7 @@ def test_delete_file_removes_file(tmp_path):
     assert not f.exists()
 
 
-def test_delete_file_missing_returns_error(tmp_path):
+async def test_delete_file_missing_returns_error(tmp_path):
     called = {"done": False}
 
     async def fake_model(messages, info: AgentInfo) -> ModelResponse:
@@ -347,7 +347,7 @@ def test_delete_file_missing_returns_error(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "delete ghost.txt",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -361,7 +361,7 @@ def test_delete_file_missing_returns_error(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_move_file_relocates_content(tmp_path):
+async def test_move_file_relocates_content(tmp_path):
     src = tmp_path / "src.txt"
     src.write_text("hello move")
 
@@ -382,7 +382,7 @@ def test_move_file_relocates_content(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "move src.txt dst.txt",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -395,7 +395,7 @@ def test_move_file_relocates_content(tmp_path):
     assert dst.read_text() == "hello move"
 
 
-def test_move_file_path_escape_rejected(tmp_path):
+async def test_move_file_path_escape_rejected(tmp_path):
     src = tmp_path / "src.txt"
     src.write_text("data")
 
@@ -416,7 +416,7 @@ def test_move_file_path_escape_rejected(tmp_path):
 
     agent = build_agent("test")
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "move src.txt ../outside.txt",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
@@ -450,7 +450,7 @@ def test_safe_path_symlink_escape(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_run_bash_denylist(tmp_path):
+async def test_run_bash_denylist(tmp_path):
     called = {"done": False}
 
     async def fake_model(messages, info: AgentInfo) -> ModelResponse:
@@ -464,7 +464,7 @@ def test_run_bash_denylist(tmp_path):
     agent = build_agent("test")
     # auto_approve=True proves the denylist refuses BEFORE the approval gate.
     with agent.override(model=FunctionModel(fake_model)):
-        result = agent.run_sync(
+        result = await agent.run(
             "wipe disk",
             deps=AgentDeps(cwd=tmp_path, auto_approve=True),
         )
