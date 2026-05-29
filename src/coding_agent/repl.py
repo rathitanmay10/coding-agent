@@ -64,8 +64,7 @@ def _print_session_total(logger: SessionLogger) -> None:
 
 def _extract_usage(result) -> tuple[int, int, int]:
     """Return (input_tokens, output_tokens, requests) from a run result."""
-    raw = result.usage
-    usage = raw() if callable(raw) else raw
+    usage = result.usage
     if usage is None:
         return (0, 0, 0)
     return (
