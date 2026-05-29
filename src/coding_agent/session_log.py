@@ -36,12 +36,14 @@ class SessionLogger:
         self.total_output = 0
         self.total_requests = 0
         self.turn_count = 0
-        self._write({
-            "type": "session_start",
-            "ts": time.time(),
-            "model": model,
-            "cwd": str(cwd),
-        })
+        self._write(
+            {
+                "type": "session_start",
+                "ts": time.time(),
+                "model": model,
+                "cwd": str(cwd),
+            }
+        )
 
     def _write(self, obj: dict[str, Any]) -> None:
         try:
@@ -55,21 +57,23 @@ class SessionLogger:
         self.total_input += rec.input_tokens
         self.total_output += rec.output_tokens
         self.total_requests += rec.requests
-        self._write({
-            "type": "turn",
-            "ts": time.time(),
-            "turn": self.turn_count,
-            "user": rec.user,
-            "tool_calls": rec.tool_calls,
-            "output": rec.output,
-            "error": rec.error,
-            "duration_s": round(rec.duration_s, 3),
-            "usage": {
-                "input_tokens": rec.input_tokens,
-                "output_tokens": rec.output_tokens,
-                "requests": rec.requests,
-            },
-        })
+        self._write(
+            {
+                "type": "turn",
+                "ts": time.time(),
+                "turn": self.turn_count,
+                "user": rec.user,
+                "tool_calls": rec.tool_calls,
+                "output": rec.output,
+                "error": rec.error,
+                "duration_s": round(rec.duration_s, 3),
+                "usage": {
+                    "input_tokens": rec.input_tokens,
+                    "output_tokens": rec.output_tokens,
+                    "requests": rec.requests,
+                },
+            }
+        )
 
     def metrics_line(self, last: TurnRecord) -> str:
         return (
@@ -100,16 +104,18 @@ def load_session(path: Path) -> list[TurnRecord]:
         if obj.get("type") != "turn":
             continue
         usage = obj.get("usage") or {}
-        records.append(TurnRecord(
-            user=obj.get("user", ""),
-            tool_calls=obj.get("tool_calls") or [],
-            output=obj.get("output", ""),
-            error=obj.get("error"),
-            duration_s=obj.get("duration_s", 0.0),
-            input_tokens=usage.get("input_tokens", 0),
-            output_tokens=usage.get("output_tokens", 0),
-            requests=usage.get("requests", 0),
-        ))
+        records.append(
+            TurnRecord(
+                user=obj.get("user", ""),
+                tool_calls=obj.get("tool_calls") or [],
+                output=obj.get("output", ""),
+                error=obj.get("error"),
+                duration_s=obj.get("duration_s", 0.0),
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+                requests=usage.get("requests", 0),
+            )
+        )
     return records
 
 

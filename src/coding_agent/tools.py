@@ -13,13 +13,23 @@ from coding_agent.deps import AgentDeps
 from coding_agent.approval import confirm
 
 IGNORE_DIRS = {
-    ".git", ".venv", "node_modules", "__pycache__", ".pytest_cache",
-    "dist", "build", ".mypy_cache", ".ruff_cache", ".coding-agent",
+    ".git",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    "dist",
+    "build",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".coding-agent",
 }
 
 # Obviously destructive command patterns refused before approval is ever asked.
 BASH_DENYLIST = (
-    re.compile(r"\brm\b.*\s-[a-zA-Z]*[rf][a-zA-Z]*\s+[/~]"),  # rm -rf /... or ~... (absolute/home target)
+    re.compile(
+        r"\brm\b.*\s-[a-zA-Z]*[rf][a-zA-Z]*\s+[/~]"
+    ),  # rm -rf /... or ~... (absolute/home target)
     re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),  # fork bomb
     re.compile(r"\bdd\b.*\bof=/dev/"),  # dd of=/dev/...
     re.compile(r"\bmkfs(\.\w+)?\b"),  # filesystem format
@@ -31,7 +41,9 @@ def _denied_bash(command: str) -> str | None:
     """Return a reason string if `command` matches a destructive denylist pattern, else None."""
     for pat in BASH_DENYLIST:
         if pat.search(command):
-            return f"refused: command matches destructive denylist pattern ({pat.pattern})"
+            return (
+                f"refused: command matches destructive denylist pattern ({pat.pattern})"
+            )
     return None
 
 
@@ -67,7 +79,9 @@ def register_tools(agent) -> None:
             text = raw.decode("utf-8", errors="replace")
             lines = text.splitlines()
             selected = lines[offset : offset + limit]
-            return "\n".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(selected))
+            return "\n".join(
+                f"{offset + i + 1}\t{line}" for i, line in enumerate(selected)
+            )
         except Exception as e:
             return f"Error: {e}"
 
@@ -80,11 +94,11 @@ def register_tools(agent) -> None:
                 return [f"Error: directory not found: {path}"]
             if not target.is_dir():
                 return [f"Error: not a directory: {path}"]
-            allowed_dot = {".gitignore", ".env.example"}
+            dot_denylist = {".env", ".git"}
             entries: list[str] = []
             for child in target.iterdir():
                 name = child.name
-                if name.startswith(".") and name not in allowed_dot:
+                if name.startswith(".") and name in dot_denylist:
                     continue
                 if child.is_dir():
                     entries.append(name + "/")
@@ -177,9 +191,23 @@ def register_tools(agent) -> None:
         """Write content to a file (with user confirmation), creating parent dirs."""
         try:
             target = _safe_path(ctx.deps.cwd, path)
-            detail = f"path: {path}\n{len(content.splitlines())} lines, {len(content)} bytes"
+            detail = (
+                f"path: {path}\n{len(content.splitlines())} lines, {len(content)} bytes"
+            )
             if target.exists():
-                detail = "(overwriting existing file)\n" + detail
+                try:
+                    current = target.read_text()
+                    detail = "".join(
+                        difflib.unified_diff(
+                            current.splitlines(keepends=True),
+                            content.splitlines(keepends=True),
+                            fromfile=path,
+                            tofile=path,
+                            n=2,
+                        )
+                    )
+                except Exception:
+                    detail = f"(overwriting existing file)\npath: {path}\n{len(content.splitlines())} lines, {len(content)} bytes"
             if not confirm(ctx.deps, "write_file", detail):
                 return "User denied: write_file"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -297,6 +325,10 @@ def register_tools(agent) -> None:
             denied = _denied_bash(command)
             if denied:
                 return f"Error: {denied}"
+            if ctx.deps.bash_allowlist and not command.lstrip().startswith(
+                tuple(ctx.deps.bash_allowlist)
+            ):
+                return "Error: refused: command not in --bash-allow allowlist"
             detail = f"$ {command}\n(cwd: {ctx.deps.cwd})\ntimeout: {timeout}s"
             if not confirm(ctx.deps, "run_bash", detail):
                 return "User denied: run_bash"
@@ -313,6 +345,6 @@ def register_tools(agent) -> None:
                 return f"Error: command timed out after {timeout}s"
             stdout = proc.stdout or ""
             stderr = proc.stderr or ""
-            return f"[exit {proc.returncode}]\nstdout:\n{stdout[:4000]}\nstderr:\n{stderr[:2000]}"
+            return f"[exit {proc.returncode}]\nstdout:\n{stdout[: ctx.deps.max_stdout]}\nstderr:\n{stderr[: ctx.deps.max_stderr]}"
         except Exception as e:
             return f"Error: {e}"

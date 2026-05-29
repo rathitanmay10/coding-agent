@@ -32,4 +32,5 @@ testpaths = ["tests"]
 [dependency-groups]
 dev = [
     "ruff>=0.15.15",
+    "ty",
 ]

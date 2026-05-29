@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic_ai import Agent
+from pydantic_ai.models import Model
 
 from coding_agent.deps import AgentDeps
 from coding_agent.tools import register_tools
@@ -28,7 +27,9 @@ Rules:
 """
 
 
-def build_agent(model: Any, project_context: str | None = None) -> Agent[AgentDeps, str]:
+def build_agent(
+    model: Model | str, project_context: str | None = None
+) -> Agent[AgentDeps, str]:
     """Build an Agent wired with the given model (string id or model instance)."""
     instructions = (
         SYSTEM_PROMPT + "\n\n# Project context\n" + project_context

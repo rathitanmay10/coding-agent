@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Callable, TypeVar
 
 import httpx
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.ollama import OllamaProvider
+from pydantic_ai.providers.openai import OpenAIProvider
 
 _T = TypeVar("_T")
 
@@ -42,13 +45,12 @@ def with_retry(fn: Callable[[], _T], *, attempts: int = 3, base: float = 0.5) ->
         if i == attempts - 1:
             raise err
         delay = base * 2**i
-        print(f"[retry] transient error, attempt {i + 1}/{attempts}, sleeping {delay}s", file=sys.stderr)
+        print(
+            f"[retry] transient error, attempt {i + 1}/{attempts}, sleeping {delay}s",
+            file=sys.stderr,
+        )
         time.sleep(delay)
     raise err  # unreachable but satisfies type checkers
-
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.ollama import OllamaProvider
-from pydantic_ai.providers.openai import OpenAIProvider
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -80,7 +82,9 @@ def _ollama_base_url(host: str) -> str:
     return host if host.endswith("/v1") else host + "/v1"
 
 
-def build_ollama_model(model_name: str, host: str = "http://localhost:11434") -> OpenAIChatModel:
+def build_ollama_model(
+    model_name: str, host: str = "http://localhost:11434"
+) -> OpenAIChatModel:
     return OpenAIChatModel(
         model_name=model_name,
         provider=OllamaProvider(base_url=_ollama_base_url(host)),

@@ -8,9 +8,10 @@ CLI coding harness powered by [Pydantic AI](https://ai.pydantic.dev/). Two backe
 Drives file edits, shell commands, and code search against your local project.
 
 Features: live token **streaming**, gitignore-aware search, project-context priming
-on boot, per-tool **approval allowlist**, a destructive-command denylist,
+on boot, per-tool **approval allowlist**, a destructive-command denylist, an
+opt-in **`run_bash` command allowlist**, configurable command-output limits,
 transient-error retry, Ctrl-C cancels the current turn (not the app), `/compact`
-history summarization, and `--resume` to continue a past session.
+**LLM history summarization**, and `--resume` to continue a past session.
 
 ## Requirements
 
@@ -46,6 +47,12 @@ uv run coding-agent --provider openrouter --model openai/gpt-4o --api-key sk-or-
 # Skip approval prompts (dangerous):
 uv run coding-agent --yolo
 
+# Restrict run_bash to an allowlist (repeatable; only matching command prefixes run):
+uv run coding-agent --bash-allow ls --bash-allow git --bash-allow "uv run pytest"
+
+# Tune how much command output is kept (default 4000/2000 chars):
+uv run coding-agent --max-stdout 20000 --max-stderr 8000
+
 # Remote/non-default Ollama host:
 uv run coding-agent --provider ollama --host http://192.168.1.50:11434
 
@@ -74,7 +81,7 @@ CLI `--api-key` beats env beats `.env` beats interactive prompt.
 | `/help` | List all REPL commands |
 | `/exit`, `/quit`, Ctrl-D | Quit (prints session totals) |
 | `/clear` | Reset conversation history |
-| `/compact` | Summarize old turns into one recap; shrinks context |
+| `/compact` | Ask the model to summarize old turns into one recap; shrinks context (falls back to a plain snippet recap if the call fails) |
 | `/model` | Re-pick model (resets history) |
 | `/stats` | Show running token + turn totals |
 
@@ -94,8 +101,8 @@ Agent is locked to the directory you launch from. Every tool resolves paths agai
 
 ## Tools the agent can call
 
-- **read_file**, **list_dir**, **glob_files**, **grep** — read-only, no prompt. `glob_files`/`grep` skip `.git`, `.venv`, `node_modules`, `__pycache__`, etc. (ripgrep respects your `.gitignore`).
-- **write_file**, **edit_file**, **multi_edit**, **delete_file**, **move_file**, **run_bash** — prompt before each call (unless `--yolo`).
+- **read_file**, **list_dir**, **glob_files**, **grep** — read-only, no prompt. `glob_files`/`grep` skip `.git`, `.venv`, `node_modules`, `__pycache__`, etc. (ripgrep respects your `.gitignore`). `list_dir` shows dotfiles (`.eslintrc`, `.ruff_cache`, …) except `.env` and `.git`.
+- **write_file**, **edit_file**, **multi_edit**, **delete_file**, **move_file**, **run_bash** — prompt before each call (unless `--yolo`). `write_file` shows a unified diff when overwriting an existing file.
 
 All paths are confined to the directory you launch from.
 
@@ -111,6 +118,13 @@ Destructive tools prompt `Approve? [y/N/a]`:
 destructive denylist — `rm -rf /` / `~`, fork bombs, `dd of=/dev/...`, `mkfs`,
 raw-disk redirects — even under `--yolo`.
 
+If one or more `--bash-allow PREFIX` flags are given, `run_bash` enters **allowlist
+mode**: a command runs only if it starts with one of the given prefixes; anything
+else is refused before the approval prompt. With no `--bash-allow` flags, every
+command is allowed (subject to the denylist + approval). Note: the denylist is a
+backstop, not a sandbox — `shell=True` means a regex blocklist can be bypassed
+(`eval`, indirection, heredocs). Use `--bash-allow` for real restriction.
+
 ## Resilience
 
 - **Streaming** — assistant text prints token-by-token as it arrives.
@@ -122,8 +136,14 @@ raw-disk redirects — even under `--yolo`.
 
 Smaller models (≤7B) sometimes fumble tool-call JSON. If the agent hallucinates calls or stalls, try `qwen2.5-coder:7b` or larger.
 
-## Tests
+## Tests, lint, types
 
 ```bash
-uv run pytest
+uv run pytest          # tests
+uv run ruff check .    # lint
+uv run ruff format .   # format
+uv run ty check src/   # type check (Astral `ty`)
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs ruff + ty + pytest on every push
+and PR.

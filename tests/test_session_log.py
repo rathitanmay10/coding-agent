@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
-import pytest
 
 from coding_agent.session_log import (
     SessionLogger,
@@ -13,8 +11,15 @@ from coding_agent.session_log import (
 )
 
 
-def _make_turn(user: str, output: str, error=None, duration_s=1.5,
-               input_tokens=10, output_tokens=20, requests=1) -> TurnRecord:
+def _make_turn(
+    user: str,
+    output: str,
+    error=None,
+    duration_s=1.5,
+    input_tokens=10,
+    output_tokens=20,
+    requests=1,
+) -> TurnRecord:
     return TurnRecord(
         user=user,
         output=output,
@@ -29,8 +34,15 @@ def _make_turn(user: str, output: str, error=None, duration_s=1.5,
 def test_round_trip_two_turns(tmp_path):
     logger = SessionLogger(tmp_path, "test:model")
     t1 = _make_turn("hello", "world", input_tokens=11, output_tokens=22, requests=2)
-    t2 = _make_turn("foo", "bar", error="oops", duration_s=3.0,
-                    input_tokens=33, output_tokens=44, requests=3)
+    t2 = _make_turn(
+        "foo",
+        "bar",
+        error="oops",
+        duration_s=3.0,
+        input_tokens=33,
+        output_tokens=44,
+        requests=3,
+    )
     logger.log_turn(t1)
     logger.log_turn(t2)
 

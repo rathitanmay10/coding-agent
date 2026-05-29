@@ -29,7 +29,11 @@ from coding_agent.pickers import (
     pick_provider,
     resolve_openrouter_key,
 )
-from coding_agent.providers import build_ollama_model, build_openrouter_model, with_retry
+from coding_agent.providers import (
+    build_ollama_model,
+    build_openrouter_model,
+    with_retry,
+)
 from coding_agent.session_log import SessionLogger, TurnRecord
 
 
@@ -116,104 +120,145 @@ def run_repl(
 ) -> None:
     history: list = list(initial_history) if initial_history else []
 
-    while True:
-        try:
-            user_input = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            _print_session_total(logger)
-            return
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-        if not user_input:
-            continue
-        if user_input in ("/exit", "/quit"):
-            _print_session_total(logger)
-            return
-        if user_input == "/clear":
-            history = []
-            print("(history cleared)")
-            continue
-        if user_input == "/stats":
-            print(
-                f"turns={logger.turn_count} "
-                f"in={logger.total_input} out={logger.total_output} "
-                f"req={logger.total_requests} "
-                f"log={logger.path}"
-            )
-            continue
-        if user_input == "/model":
-            provider, model_name = _pick_provider_and_model(args, use_cli_overrides=False)
-            model = _build_model(provider, model_name, args.host, args.api_key)
-            agent = build_agent(model, project_context=project_context)
-            history = []
-            print(f"(switched to {provider}:{model_name}; history cleared)")
-            continue
-        if user_input == "/help":
-            print(
-                "Commands:\n"
-                "  /help     show this help\n"
-                "  /exit     quit (also /quit)\n"
-                "  /clear    clear conversation history\n"
-                "  /compact  summarize & shrink history to save context\n"
-                "  /model    switch provider/model (clears history)\n"
-                "  /stats    show token usage + log path"
-            )
-            continue
-        if user_input == "/compact":
-            old_len = len(history)
-            summary = summarize_history(history)
-            if summary:
-                history = [ModelRequest(parts=[UserPromptPart(content="[Compacted context]\n" + summary)])]
-            else:
+    try:
+        while True:
+            try:
+                user_input = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                _print_session_total(logger)
+                return
+
+            if not user_input:
+                continue
+            if user_input in ("/exit", "/quit"):
+                _print_session_total(logger)
+                return
+            if user_input == "/clear":
                 history = []
-            print(f"(history compacted: {old_len} turns -> summary)")
-            continue
+                print("(history cleared)")
+                continue
+            if user_input == "/stats":
+                print(
+                    f"turns={logger.turn_count} "
+                    f"in={logger.total_input} out={logger.total_output} "
+                    f"req={logger.total_requests} "
+                    f"log={logger.path}"
+                )
+                continue
+            if user_input == "/model":
+                provider, model_name = _pick_provider_and_model(
+                    args, use_cli_overrides=False
+                )
+                model = _build_model(provider, model_name, args.host, args.api_key)
+                agent = build_agent(model, project_context=project_context)
+                history = []
+                print(f"(switched to {provider}:{model_name}; history cleared)")
+                continue
+            if user_input == "/help":
+                print(
+                    "Commands:\n"
+                    "  /help     show this help\n"
+                    "  /exit     quit (also /quit)\n"
+                    "  /clear    clear conversation history\n"
+                    "  /compact  summarize & shrink history to save context\n"
+                    "  /model    switch provider/model (clears history)\n"
+                    "  /stats    show token usage + log path"
+                )
+                continue
+            if user_input == "/compact":
+                old_len = len(history)
+                if history:
 
-        turn_calls: list[dict] = []
-        handler = make_event_handler(turn_calls)
-        rec = TurnRecord(user=user_input)
-        t0 = time.monotonic()
+                    async def _compact():
+                        result = await agent.run(
+                            "Summarize our conversation so far into a concise recap that "
+                            "preserves all decisions, file paths, code changes, and open "
+                            "tasks. Write it as notes for continuing the work.",
+                            message_history=history,
+                            deps=deps,
+                        )
+                        return str(result.output)
 
-        async def _run_turn():
-            async with agent.run_stream(
-                user_input,
-                message_history=history,
-                deps=deps,
-                event_stream_handler=handler,
-            ) as response:
-                print()
-                async for chunk in response.stream_text(delta=True):
-                    print(chunk, end="", flush=True)
-                print()
-                output = str(await response.get_output())
-                usage_tuple = _extract_usage(response)
-                new_msgs = response.new_messages()
-            return output, usage_tuple, new_msgs
+                    try:
+                        summary = with_retry(
+                            lambda: loop.run_until_complete(_compact())
+                        )
+                    except Exception as e:
+                        print(
+                            f"(compact summarization failed: {e}; using fallback)",
+                            file=sys.stderr,
+                        )
+                        summary = summarize_history(history)
+                else:
+                    summary = ""
+                if summary:
+                    history = [
+                        ModelRequest(
+                            parts=[
+                                UserPromptPart(
+                                    content="[Compacted context]\n" + summary
+                                )
+                            ]
+                        )
+                    ]
+                else:
+                    history = []
+                print(f"(history compacted: {old_len} turns -> summary)")
+                continue
 
-        try:
-            output, usage_tuple, new_msgs = with_retry(lambda: asyncio.run(_run_turn()))
-        except KeyboardInterrupt:
-            rec.error = "cancelled"
-            rec.tool_calls = turn_calls
+            turn_calls: list[dict] = []
+            handler = make_event_handler(turn_calls)
+            rec = TurnRecord(user=user_input)
+            t0 = time.monotonic()
+
+            async def _run_turn():
+                async with agent.run_stream(
+                    user_input,
+                    message_history=history,
+                    deps=deps,
+                    event_stream_handler=handler,
+                ) as response:
+                    print()
+                    async for chunk in response.stream_text(delta=True):
+                        print(chunk, end="", flush=True)
+                    print()
+                    output = str(await response.get_output())
+                    usage_tuple = _extract_usage(response)
+                    new_msgs = response.new_messages()
+                return output, usage_tuple, new_msgs
+
+            try:
+                output, usage_tuple, new_msgs = with_retry(
+                    lambda: loop.run_until_complete(_run_turn())
+                )
+            except KeyboardInterrupt:
+                rec.error = "cancelled"
+                rec.tool_calls = turn_calls
+                rec.duration_s = time.monotonic() - t0
+                logger.log_turn(rec)
+                print("\n(turn cancelled)\n", file=sys.stderr)
+                continue
+            except Exception as e:
+                rec.error = str(e)
+                rec.tool_calls = turn_calls
+                rec.duration_s = time.monotonic() - t0
+                logger.log_turn(rec)
+                print(f"\nError: {e}\n", file=sys.stderr)
+                print(logger.metrics_line(rec), file=sys.stderr)
+                continue
+
             rec.duration_s = time.monotonic() - t0
-            logger.log_turn(rec)
-            print("\n(turn cancelled)\n", file=sys.stderr)
-            continue
-        except Exception as e:
-            rec.error = str(e)
             rec.tool_calls = turn_calls
-            rec.duration_s = time.monotonic() - t0
+            rec.output = output
+            rec.input_tokens, rec.output_tokens, rec.requests = usage_tuple
             logger.log_turn(rec)
-            print(f"\nError: {e}\n", file=sys.stderr)
+            history.extend(new_msgs)
+
             print(logger.metrics_line(rec), file=sys.stderr)
-            continue
-
-        rec.duration_s = time.monotonic() - t0
-        rec.tool_calls = turn_calls
-        rec.output = output
-        rec.input_tokens, rec.output_tokens, rec.requests = usage_tuple
-        logger.log_turn(rec)
-        history.extend(new_msgs)
-
-        print(logger.metrics_line(rec), file=sys.stderr)
-        print()
+            print()
+    finally:
+        loop.close()

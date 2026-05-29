@@ -3,8 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 _SKIP_DIRS = {
-    ".git", ".venv", "node_modules", "__pycache__",
-    ".pytest_cache", "dist", "build", ".mypy_cache",
+    ".git",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    "dist",
+    "build",
+    ".mypy_cache",
 }
 
 
@@ -17,7 +23,9 @@ def _build_tree(cwd: Path) -> str:
                     continue
                 lines.append(f"{entry.name}/")
                 try:
-                    for child in sorted(entry.iterdir(), key=lambda e: (e.is_file(), e.name)):
+                    for child in sorted(
+                        entry.iterdir(), key=lambda e: (e.is_file(), e.name)
+                    ):
                         if child.is_dir():
                             if child.name in _SKIP_DIRS or child.name.startswith("."):
                                 continue
@@ -55,7 +63,9 @@ def gather_context(cwd: Path) -> str:
         doc_path = cwd / candidate
         if doc_path.exists():
             try:
-                lines = doc_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                lines = doc_path.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
                 doc_content = "\n".join(lines[:100])
                 doc_label = candidate
             except OSError:
@@ -90,7 +100,9 @@ def summarize_history(history: list) -> str:
                     content = getattr(part, "content", None)
                     if not isinstance(content, str) or not content.strip():
                         continue
-                    role = getattr(part, "part_kind", None) or getattr(msg, "kind", "msg")
+                    role = getattr(part, "part_kind", None) or getattr(
+                        msg, "kind", "msg"
+                    )
                     snippet = content[:200].replace("\n", " ")
                     lines.append(f"- {role}: {snippet}")
                 except Exception:

@@ -50,6 +50,27 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Resume a past session. Bare --resume or --resume latest = newest; or pass a session-*.jsonl path.",
     )
+    p.add_argument(
+        "--bash-allow",
+        action="append",
+        dest="bash_allow",
+        default=None,
+        help="Command prefix allowed for run_bash. Repeatable. If any given, only matching commands run.",
+    )
+    p.add_argument(
+        "--max-stdout",
+        type=int,
+        dest="max_stdout",
+        default=4000,
+        help="Max run_bash stdout chars kept (default 4000).",
+    )
+    p.add_argument(
+        "--max-stderr",
+        type=int,
+        dest="max_stderr",
+        default=2000,
+        help="Max run_bash stderr chars kept (default 2000).",
+    )
     return p.parse_args()
 
 
@@ -57,7 +78,13 @@ def main() -> None:
     args = parse_args()
     cwd = Path.cwd().resolve()
     loaded = load_env_file(cwd / ".env")
-    deps = AgentDeps(cwd=cwd, auto_approve=args.yolo)  # approved_tools set defaults via field(default_factory=set)
+    deps = AgentDeps(
+        cwd=cwd,
+        auto_approve=args.yolo,
+        bash_allowlist=args.bash_allow or [],
+        max_stdout=args.max_stdout,
+        max_stderr=args.max_stderr,
+    )  # approved_tools set defaults via field(default_factory=set)
 
     provider, model_name = _pick_provider_and_model(args)
     model = _build_model(provider, model_name, args.host, args.api_key)
@@ -80,15 +107,31 @@ def main() -> None:
         if path and path.exists():
             resumed = load_session(path)
             print(f"resumed {len(resumed)} turns from {path.name}")
-            recap = "\n".join(f"User: {rec.user}\nAssistant: {rec.output}" for rec in resumed)
-            resume_history = [ModelRequest(parts=[UserPromptPart(content="[Resumed session recap]\n" + recap)])]
+            recap = "\n".join(
+                f"User: {rec.user}\nAssistant: {rec.output}" for rec in resumed
+            )
+            resume_history = [
+                ModelRequest(
+                    parts=[UserPromptPart(content="[Resumed session recap]\n" + recap)]
+                )
+            ]
         else:
             print(f"--resume: no session found ({args.resume})")
             resume_history = []
     else:
         resume_history = []
 
-    run_repl(agent, deps, logger, args, provider, model_name, model, initial_history=resume_history, project_context=project_context)
+    run_repl(
+        agent,
+        deps,
+        logger,
+        args,
+        provider,
+        model_name,
+        model,
+        initial_history=resume_history,
+        project_context=project_context,
+    )
 
 
 if __name__ == "__main__":

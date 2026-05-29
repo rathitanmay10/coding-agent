@@ -87,12 +87,17 @@ def test_path_escape_rejected(tmp_path):
         _safe_path(tmp_path, "../../etc/passwd")
 
     safe = _safe_path(tmp_path, "foo/bar")
-    assert tmp_path in safe.parents or safe.parent == tmp_path or str(safe).startswith(str(tmp_path))
+    assert (
+        tmp_path in safe.parents
+        or safe.parent == tmp_path
+        or str(safe).startswith(str(tmp_path))
+    )
 
 
 # ---------------------------------------------------------------------------
 # glob_files: gitignore-style dirs are skipped
 # ---------------------------------------------------------------------------
+
 
 def test_glob_files_skips_ignored_dirs(tmp_path):
     real = tmp_path / "pkg" / "mod.py"
@@ -113,7 +118,9 @@ def test_glob_files_skips_ignored_dirs(tmp_path):
         if not called["done"]:
             called["done"] = True
             return ModelResponse(
-                parts=[ToolCallPart(tool_name="glob_files", args={"pattern": "**/*.py"})]
+                parts=[
+                    ToolCallPart(tool_name="glob_files", args={"pattern": "**/*.py"})
+                ]
             )
         return ModelResponse(parts=[TextPart(content="done")])
 
@@ -133,6 +140,7 @@ def test_glob_files_skips_ignored_dirs(tmp_path):
 # ---------------------------------------------------------------------------
 # grep python fallback: ignored dirs skipped when rg absent
 # ---------------------------------------------------------------------------
+
 
 def test_grep_fallback_skips_ignored_dirs(tmp_path, monkeypatch):
     import coding_agent.tools as _tools_mod
@@ -172,6 +180,7 @@ def test_grep_fallback_skips_ignored_dirs(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # multi_edit
 # ---------------------------------------------------------------------------
+
 
 def test_multi_edit_applies_two_edits(tmp_path):
     f = tmp_path / "code.py"
@@ -292,6 +301,7 @@ def test_multi_edit_atomic_on_duplicate_old(tmp_path):
 # delete_file
 # ---------------------------------------------------------------------------
 
+
 def test_delete_file_removes_file(tmp_path):
     f = tmp_path / "to_delete.txt"
     f.write_text("bye")
@@ -302,7 +312,11 @@ def test_delete_file_removes_file(tmp_path):
         if not called["done"]:
             called["done"] = True
             return ModelResponse(
-                parts=[ToolCallPart(tool_name="delete_file", args={"path": "to_delete.txt"})]
+                parts=[
+                    ToolCallPart(
+                        tool_name="delete_file", args={"path": "to_delete.txt"}
+                    )
+                ]
             )
         return ModelResponse(parts=[TextPart(content="done")])
 
@@ -325,7 +339,9 @@ def test_delete_file_missing_returns_error(tmp_path):
         if not called["done"]:
             called["done"] = True
             return ModelResponse(
-                parts=[ToolCallPart(tool_name="delete_file", args={"path": "ghost.txt"})]
+                parts=[
+                    ToolCallPart(tool_name="delete_file", args={"path": "ghost.txt"})
+                ]
             )
         return ModelResponse(parts=[TextPart(content="done")])
 
@@ -343,6 +359,7 @@ def test_delete_file_missing_returns_error(tmp_path):
 # ---------------------------------------------------------------------------
 # move_file
 # ---------------------------------------------------------------------------
+
 
 def test_move_file_relocates_content(tmp_path):
     src = tmp_path / "src.txt"
@@ -413,6 +430,7 @@ def test_move_file_path_escape_rejected(tmp_path):
 # _safe_path symlink escape
 # ---------------------------------------------------------------------------
 
+
 def test_safe_path_symlink_escape(tmp_path):
     from coding_agent.tools import _safe_path
 
@@ -430,6 +448,7 @@ def test_safe_path_symlink_escape(tmp_path):
 # ---------------------------------------------------------------------------
 # run_bash denylist — destructive commands refused before approval/execution
 # ---------------------------------------------------------------------------
+
 
 def test_run_bash_denylist(tmp_path):
     called = {"done": False}

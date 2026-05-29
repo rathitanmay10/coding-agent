@@ -7,10 +7,7 @@ import sys
 from coding_agent.ollama_models import list_models
 
 PROVIDERS = ("ollama", "openrouter")
-OPENROUTER_SUGGESTIONS = (
-    "z-ai/glm-4.5-air:free",
-    "openrouter/free"
-)
+OPENROUTER_SUGGESTIONS = ("z-ai/glm-4.5-air:free", "openrouter/free")
 
 
 def _safe_input(prompt: str) -> str:
