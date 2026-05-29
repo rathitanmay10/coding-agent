@@ -236,6 +236,20 @@ def run_repl(
                     lambda: loop.run_until_complete(_run_turn())
                 )
             except KeyboardInterrupt:
+                # The interrupted turn left a pending task (agent.run_stream's async
+                # context) on the reused loop; cancel + drain it so the streaming HTTP
+                # connection is closed instead of leaked.
+                try:
+                    pending = asyncio.all_tasks(loop)
+                    for task in pending:
+                        task.cancel()
+                    if pending:
+                        loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True)
+                        )
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
                 rec.error = "cancelled"
                 rec.tool_calls = turn_calls
                 rec.duration_s = time.monotonic() - t0
@@ -261,4 +275,8 @@ def run_repl(
             print(logger.metrics_line(rec), file=sys.stderr)
             print()
     finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
         loop.close()

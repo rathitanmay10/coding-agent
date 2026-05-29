@@ -52,6 +52,7 @@ def with_retry(fn: Callable[[], _T], *, attempts: int = 3, base: float = 0.5) ->
         time.sleep(delay)
     raise err  # unreachable but satisfies type checkers
 
+
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,6 +12,21 @@ from pydantic_ai import RunContext
 
 from coding_agent.deps import AgentDeps
 from coding_agent.approval import confirm
+
+# Dotfiles never shown by list_dir (secrets / credential stores). Other dotfiles
+# (.gitignore, .eslintrc, .ruff_cache, ...) are shown.
+SECRET_DOTFILES = {
+    ".git",
+    ".env",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".docker",
+    ".kube",
+}
 
 IGNORE_DIRS = {
     ".git",
@@ -25,6 +41,10 @@ IGNORE_DIRS = {
     ".coding-agent",
 }
 
+# In allowlist mode, refuse commands containing shell operators that enable
+# chaining / redirection / substitution (they would bypass a per-command allowlist).
+_SHELL_CONTROL = re.compile(r"[;&|`\n]|\$\(|>|<")
+
 # Obviously destructive command patterns refused before approval is ever asked.
 BASH_DENYLIST = (
     re.compile(
@@ -35,6 +55,37 @@ BASH_DENYLIST = (
     re.compile(r"\bmkfs(\.\w+)?\b"),  # filesystem format
     re.compile(r">\s*/dev/sd[a-z]"),  # write to raw disk
 )
+
+
+def _bash_allowed(command: str, allowlist: list[str]) -> bool:
+    """Return True if `command` is permitted under the allowlist.
+
+    Empty/whitespace entries are ignored. An empty effective allowlist means no
+    restriction (returns True). In allowlist mode, commands containing shell
+    control operators (;, &, |, backtick, $(, >, <, newline) are refused, and the
+    command's leading tokens must exactly match some allowlist entry's tokens
+    (so "uv run pytest -k x" matches entry "uv run pytest"; "lsblk" does NOT
+    match "ls").
+    """
+    entries = [e for e in allowlist if e.strip()]
+    if not entries:
+        return True
+    if _SHELL_CONTROL.search(command):
+        return False
+    try:
+        cmd_tokens = shlex.split(command)
+    except ValueError:
+        return False
+    if not cmd_tokens:
+        return False
+    for entry in entries:
+        try:
+            entry_tokens = shlex.split(entry)
+        except ValueError:
+            continue
+        if entry_tokens and cmd_tokens[: len(entry_tokens)] == entry_tokens:
+            return True
+    return False
 
 
 def _denied_bash(command: str) -> str | None:
@@ -94,11 +145,12 @@ def register_tools(agent) -> None:
                 return [f"Error: directory not found: {path}"]
             if not target.is_dir():
                 return [f"Error: not a directory: {path}"]
-            dot_denylist = {".env", ".git"}
             entries: list[str] = []
             for child in target.iterdir():
                 name = child.name
-                if name.startswith(".") and name in dot_denylist:
+                if name.startswith(".") and (
+                    name in SECRET_DOTFILES or name.startswith(".env")
+                ):
                     continue
                 if child.is_dir():
                     entries.append(name + "/")
@@ -197,7 +249,7 @@ def register_tools(agent) -> None:
             if target.exists():
                 try:
                     current = target.read_text()
-                    detail = "".join(
+                    diff = "".join(
                         difflib.unified_diff(
                             current.splitlines(keepends=True),
                             content.splitlines(keepends=True),
@@ -205,6 +257,10 @@ def register_tools(agent) -> None:
                             tofile=path,
                             n=2,
                         )
+                    )
+                    detail = diff or (
+                        f"(no changes — identical content)\npath: {path}\n"
+                        f"{len(content.splitlines())} lines, {len(content)} bytes"
                     )
                 except Exception:
                     detail = f"(overwriting existing file)\npath: {path}\n{len(content.splitlines())} lines, {len(content)} bytes"
@@ -325,10 +381,12 @@ def register_tools(agent) -> None:
             denied = _denied_bash(command)
             if denied:
                 return f"Error: {denied}"
-            if ctx.deps.bash_allowlist and not command.lstrip().startswith(
-                tuple(ctx.deps.bash_allowlist)
-            ):
-                return "Error: refused: command not in --bash-allow allowlist"
+            if not _bash_allowed(command, ctx.deps.bash_allowlist):
+                return (
+                    "Error: refused: command not allowed by --bash-allow "
+                    "(allowlist mode blocks chaining/redirection and requires a "
+                    "matching command prefix)"
+                )
             detail = f"$ {command}\n(cwd: {ctx.deps.cwd})\ntimeout: {timeout}s"
             if not confirm(ctx.deps, "run_bash", detail):
                 return "User denied: run_bash"
